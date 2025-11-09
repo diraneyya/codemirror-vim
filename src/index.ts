@@ -285,7 +285,9 @@ const vimPlugin = ViewPlugin.fromClass(
       vim.status = (vim.status || "") + key;
 
       // Use robust event coordinator for key handling
-      let result = this.vimEventCoordinator.handleKeyEvent(key, e, cm);
+      // NOTE: We need to call Vim.multiSelectHandleKey directly since the coordinator
+      // is designed for high-level event routing, not vim command execution
+      let result = Vim.multiSelectHandleKey(cm, key, "user");
       vim = Vim.maybeInitVimState_(cm); // the object can change if there is an exception in handleKey
 
       // insert mode
