@@ -1,6 +1,8 @@
 import { initVim } from "./vim";
 import { CodeMirror } from "./cm_adapter";
 import { BlockCursorPlugin, hideNativeSelection } from "./block-cursor";
+import { VimStateManager, type VimMode } from "./vim-state-manager";
+import { VimEventCoordinator } from "./vim-event-coordinator";
 import {
   Extension,
   StateField,
@@ -56,6 +58,9 @@ const vimPlugin = ViewPlugin.fromClass(
     public cm: CodeMirror;
     public status = "";
     blockCursor: BlockCursorPlugin;
+    private stateManager: VimStateManager;
+    private eventCoordinator: VimEventCoordinator;
+    private viewId: string;
     constructor(view: EditorView) {
       this.view = view as EditorViewExtended;
       const cm = (this.cm = new CodeMirror(view));
@@ -64,8 +69,18 @@ const vimPlugin = ViewPlugin.fromClass(
       this.view.cm = this.cm;
       this.cm.state.vimPlugin = this;
 
+      // Initialize robust state management
+      this.stateManager = VimStateManager.getInstance();
+      this.eventCoordinator = new VimEventCoordinator();
+      this.viewId = `vim-view-${Date.now()}-${Math.random()}`;
+
+      // Register with state manager
+      this.stateManager.registerEditor(this.viewId, view, cm);
+
       this.blockCursor = new BlockCursorPlugin(view, cm);
       this.updateClass();
+
+      console.log(`[VimPlugin] Initialized robust vim plugin for ${this.viewId}`);
 
       this.cm.on("vim-command-done", () => {
         if (cm.state.vim) cm.state.vim.status = "";
@@ -74,10 +89,16 @@ const vimPlugin = ViewPlugin.fromClass(
       });
       this.cm.on("vim-mode-change", (e: any) => {
         if (!cm.state.vim) return;
-        cm.state.vim.mode = e.mode;
-        if (e.subMode) {
-          cm.state.vim.mode += e.subMode === "linewise" ? " line" : " block";
-        }
+
+        // Update through robust state manager instead of direct assignment
+        const newMode = e.mode as VimMode;
+        const newSubMode = e.subMode === "linewise" ? "linewise" : (e.subMode === "blockwise" ? "blockwise" : null);
+
+        console.log(`[VimPlugin] Mode change event: ${newMode}${newSubMode ? ` (${newSubMode})` : ''}`);
+
+        // Use state manager for consistent state updates
+        this.stateManager.transitionTo(newMode, newSubMode, 'plugin');
+
         cm.state.vim.status = "";
         this.blockCursor.scheduleRedraw();
         this.updateClass();
@@ -140,9 +161,20 @@ const vimPlugin = ViewPlugin.fromClass(
     }
     updateClass() {
       const state = this.cm.state;
-      if (!state.vim || (state.vim.insertMode && !state.overwrite))
+
+      // Use state manager for consistent class updates
+      if (this.stateManager.isInInsertMode() && !state.overwrite) {
         this.view.scrollDOM.classList.remove("cm-vimMode");
-      else this.view.scrollDOM.classList.add("cm-vimMode");
+      } else {
+        this.view.scrollDOM.classList.add("cm-vimMode");
+      }
+
+      // Sync contentEditable based on state manager
+      if (this.stateManager.shouldBlockInput()) {
+        this.view.contentDOM.setAttribute('contenteditable', 'false');
+      } else {
+        this.view.contentDOM.setAttribute('contenteditable', 'true');
+      }
     }
     updateStatus() {
       let dom = this.cm.state.statusbar;
@@ -168,10 +200,15 @@ const vimPlugin = ViewPlugin.fromClass(
     }
 
     destroy() {
+      // Unregister from state manager
+      this.stateManager.unregisterEditor(this.viewId);
+
       Vim.leaveVimMode(this.cm);
       this.updateClass();
       this.blockCursor.destroy();
       delete (this.view as any).cm;
+
+      console.log(`[VimPlugin] Destroyed robust vim plugin for ${this.viewId}`);
     }
 
     highlight(query: any) {
@@ -205,6 +242,21 @@ const vimPlugin = ViewPlugin.fromClass(
       const cm = this.cm;
       let vim = cm.state.vim;
       if (!vim) return;
+
+      // Use robust event coordinator for event handling
+      const eventResult = this.eventCoordinator.handleKeyboardEvent(e, view);
+
+      // If coordinator handled it, respect its decision
+      if (eventResult.handled) {
+        if (eventResult.preventDefault) e.preventDefault();
+        if (eventResult.stopPropagation) e.stopPropagation();
+        return eventResult.allowDefault;
+      }
+
+      // If coordinator says to allow default, don't process as vim command
+      if (eventResult.allowDefault && !eventResult.handled) {
+        return false; // Let default editor behavior handle it
+      }
 
       const key = Vim.vimKeyFromEvent(e, vim);
       CodeMirror.signal(this.cm, 'inputEvent', {type: "handleKey", key});
@@ -316,6 +368,23 @@ const vimPlugin = ViewPlugin.fromClass(
           var vim = cm.state?.vim;
           var vimPlugin = cm.state.vimPlugin;
 
+          // Use robust event coordinator for input handling
+          if (vimPlugin && vimPlugin.eventCoordinator) {
+            const inputEvent = new InputEvent('input', { data: text });
+            const result = vimPlugin.eventCoordinator.handleInputEvent(inputEvent, view);
+
+            if (result.handled) {
+              console.log(`[VimPlugin] Input blocked by coordinator: "${text}" (mode: ${vimPlugin.stateManager.getMode()})`);
+              return true; // Block the input
+            }
+
+            // If coordinator says to allow, let it through
+            if (result.allowDefault) {
+              return false; // Allow normal input processing
+            }
+          }
+
+          // Fallback to original logic if coordinator not available
           if (vim && !vim.insertMode && !cm.curOp?.isVimOp) {
             if (text === "\0\0") {
               return true;
@@ -323,10 +392,10 @@ const vimPlugin = ViewPlugin.fromClass(
             CodeMirror.signal(cm, 'inputEvent', {
               type: "text",
               text,
-              from, 
-              to,              
+              from,
+              to,
             });
-            if (text.length == 1 && vimPlugin.useNextTextInput) {
+            if (text.length == 1 && vimPlugin && vimPlugin.useNextTextInput) {
               if (vim.expectLiteralNext && view.composing) {
                 vimPlugin.compositionText = text;
                 return false
@@ -443,7 +512,7 @@ export function vim(options: { status?: boolean } = {}): Extension {
   ];
 }
 
-export { CodeMirror, Vim };
+export { CodeMirror, Vim, VimStateManager, VimEventCoordinator };
 
 export function getCM(view: EditorView): CodeMirror | null {
   return (view as EditorViewExtended).cm || null;
