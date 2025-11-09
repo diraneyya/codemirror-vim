@@ -350,6 +350,7 @@ const vimPlugin = ViewPlugin.fromClass(
           this.handleKey(e, view);
       },
       keydown: function(e: KeyboardEvent, view: EditorView) {
+        console.log('[VimPlugin] Keydown event:', e.key, 'this.handleKey type:', typeof this.handleKey);
         CodeMirror.signal(this.cm, 'inputEvent', e);
         this.lastKeydown = e.key;
         if (
@@ -360,7 +361,11 @@ const vimPlugin = ViewPlugin.fromClass(
           this.useNextTextInput = true;
         } else {
           this.useNextTextInput = false;
-          this.handleKey(e, view);
+          if (typeof this.handleKey === 'function') {
+            this.handleKey(e, view);
+          } else {
+            console.log('[VimPlugin] ERROR: this.handleKey is not a function, type:', typeof this.handleKey);
+          }
         }
       },
     },
