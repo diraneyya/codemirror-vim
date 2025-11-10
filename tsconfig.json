@@ -13,6 +13,9 @@
         "types": ["mocha"],
         "stripInternal": true,
         "typeRoots": ["./node_modules/@types"],
+        "paths": {
+            "@codemirror/*": ["../../node_modules/@codemirror/*"]
+        },
         "noUnusedLocals": true,
         "strict": true,
         "target": "es6",
