@@ -19,6 +19,9 @@
         "module": "es2020",
         "newLine": "lf",
         "moduleResolution": "node",
+        "paths": {
+            "@codemirror/*": ["../../node_modules/@codemirror/*"]
+        }
     },
     "include": [
         "src/*.ts",
