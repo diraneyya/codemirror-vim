@@ -180,18 +180,6 @@ function configChanged(update: ViewUpdate) {
     boxShadow: "none",  // Remove white outline when unfocused
     outline: "solid 1px #ff9696",  // Show standard pink outline instead
   },
-  // Single isolated Arabic character cursor (focused)
-  ".cm-cursor-arabic-isolated": {
-    background: "transparent !important",  // No background fill
-    outline: "solid 1px #ff9696",  // Red outline only
-    color: "transparent !important",  // Transparent text
-  },
-  // Single isolated Arabic character cursor (unfocused) - same as focused
-  "&:not(.cm-focused) .cm-cursor-arabic-isolated": {
-    background: "transparent !important",
-    outline: "solid 1px #ff9696",
-    color: "transparent !important",
-  },
 }
 
 export const hideNativeSelection = Prec.highest(EditorView.theme(themeSpec))
@@ -222,15 +210,15 @@ function measureArabicDualCursor(
   const wordBoundary = findArabicWordBoundaries(view, head);
 
   // Only show dual-cursor if we have a real connected word (2+ Arabic characters)
-  // Single isolated Arabic characters should use transparent cursor (outline only when focused)
+  // Single isolated Arabic characters should use standard SOLID cursor (like Latin letters)
   if (!wordBoundary || wordBoundary.end - wordBoundary.start <= 1) {
-    // Fallback to outline cursor for single isolated Arabic character
-    // Use cm-cursor-arabic-isolated class for special transparent styling
+    // Use standard solid cursor for single isolated Arabic character
+    // partial: false makes it solid (opaque) when focused, just like Latin letters
     return [new Piece((pos.left - base.left)/view.scaleX, (pos.top - base.top + h * (1 - hCoeff))/view.scaleY, h * hCoeff/view.scaleY,
                      charWidth/view.scaleX,
                      style.fontFamily, style.fontSize, style.fontWeight, style.color,
-                     primary ? "cm-fat-cursor cm-cursor-arabic-isolated cm-cursor-primary" : "cm-fat-cursor cm-cursor-arabic-isolated cm-cursor-secondary",
-                     letter || "\xa0", true, CursorLayerType.STANDARD)];
+                     primary ? "cm-fat-cursor cm-cursor-primary" : "cm-fat-cursor cm-cursor-secondary",
+                     letter || "\xa0", false, CursorLayerType.STANDARD)];  // partial: false for solid cursor
   }
 
   // Measure word block dimensions
